@@ -49,8 +49,22 @@ function signData(paymentDetails, secretKey) {
   return crypto.createHmac('sha256', secretKey).update(data).digest('base64');
 }
 
+// Middleware to validate API key
+function validateApiKey(req, res, next) {
+  const { 'x-api-key': apiKey, 'x-api-secret': apiSecret } = req.headers;
+
+  if (!apiKey || apiKey !== process.env.API_KEY) {
+    return res.status(401).json({ error: 'Invalid API key' });
+  }
+  if (!apiSecret || apiSecret !== process.env.API_SECRET) {
+    return res.status(401).json({ error: 'Invalid API secret' });
+  }
+
+  next();
+}
+
 // Route to handle payment form submission
-app.post('/payment_form', (req, res, next) => {
+app.post('/payment_form', validateApiKey, (req, res, next) => {
   try {
     let paymentDetails = req.body;
     let date = new Date();
