@@ -65,6 +65,7 @@ function validateApiKey(req, res, next) {
 
 // Route to handle payment form submission
 app.post('/payment_form', validateApiKey, (req, res, next) => {
+  console.log("Request body: ", JSON.stringify(req.body));
   try {
     let paymentDetails = req.body;
     let date = new Date();
@@ -95,7 +96,7 @@ app.post('/payment_form', validateApiKey, (req, res, next) => {
 
     // Create a URL of the frontend service with the payment initiation data as query parameters
     const frontendUrl = `https://checkout.lavanda.com.pa?${querystring.stringify(paymentDetails)}`;
-
+console.log("Response: ", JSON.stringify({paymentUrl: frontendUrl, signature: signature}));
     // Return the URL of the frontend service
     res.json({
       paymentUrl: frontendUrl,
@@ -109,6 +110,7 @@ app.post('/payment_form', validateApiKey, (req, res, next) => {
 
 // Route to handle payment submission
 app.post('/payment_submit', async (req, res, next) => {
+   console.log("Request body: ", JSON.stringify(req.body));
   try {
     const paymentDetails = req.body;
 
@@ -120,7 +122,7 @@ app.post('/payment_submit', async (req, res, next) => {
         'Content-Type': 'application/x-www-form-urlencoded'
       }
     });
-
+console.log("Response: ", JSON.stringify(response.data));
     res.send(response.data);
   } catch (err) {
     console.error(err);
