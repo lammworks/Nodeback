@@ -49,14 +49,31 @@ function signData(paymentDetails, secretKey) {
   return crypto.createHmac('sha256', secretKey).update(data).digest('base64');
 }
 
+function safeEqual(provided, expected) {
+  if (typeof provided !== 'string' || typeof expected !== 'string' || !provided || !expected) {
+    return false;
+  }
+  const a = crypto.createHash('sha256').update(provided).digest();
+  const b = crypto.createHash('sha256').update(expected).digest();
+  return crypto.timingSafeEqual(a, b);
+}
+
+function missingConfig(names) {
+  return names.filter(name => !process.env[name]);
+}
+
 // Middleware to validate API key
 function validateApiKey(req, res, next) {
   const { 'x-api-key': apiKey, 'x-api-secret': apiSecret } = req.headers;
 
-  if (!apiKey || apiKey !== process.env.API_KEY) {
+  if (missingConfig(['API_KEY', 'API_SECRET']).length) {
+    console.error('API_KEY / API_SECRET are not configured; rejecting request');
     return res.status(401).json({ error: 'Invalid API key' });
   }
-  if (!apiSecret || apiSecret !== process.env.API_SECRET) {
+  if (!safeEqual(apiKey, process.env.API_KEY)) {
+    return res.status(401).json({ error: 'Invalid API key' });
+  }
+  if (!safeEqual(apiSecret, process.env.API_SECRET)) {
     return res.status(401).json({ error: 'Invalid API secret' });
   }
 
@@ -67,6 +84,12 @@ function validateApiKey(req, res, next) {
 app.post('/payment_form', validateApiKey, (req, res, next) => {
   console.log("Request body: ", JSON.stringify(req.body));
   try {
+    const missing = missingConfig(['ACCESS_KEY', 'PROFILE_ID', 'SIGNATURE']);
+    if (missing.length) {
+      console.error(`Payment signing is not configured: missing ${missing.join(', ')}`);
+      return res.status(503).json({ error: 'Payment service not configured' });
+    }
+
     let paymentDetails = req.body;
     let date = new Date();
     let isoString = date.toISOString();
