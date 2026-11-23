@@ -63,6 +63,47 @@ function validateApiKey(req, res, next) {
   next();
 }
 
+// Returns a copy of the payment holding only the fields covered by this
+// service's signature, or null if the body is not a payment signed here.
+function verifySignedPayment(body) {
+  if (!process.env.SIGNATURE || !body || typeof body !== 'object' || Array.isArray(body)) {
+    return null;
+  }
+  const { signed_field_names: signedFieldNames, signature } = body;
+  if (typeof signedFieldNames !== 'string' || typeof signature !== 'string') {
+    return null;
+  }
+
+  const fields = signedFieldNames.split(',');
+  if (!fields.includes('signed_field_names') || new Set(fields).size !== fields.length) {
+    return null;
+  }
+  const allowedFields = new Set([...fields, 'signature']);
+  if (Object.keys(body).some(key => !allowedFields.has(key))) {
+    return null;
+  }
+
+  const payment = Object.create(null);
+  for (const field of fields) {
+    if (!Object.prototype.hasOwnProperty.call(body, field) || typeof body[field] !== 'string') {
+      return null;
+    }
+    payment[field] = body[field];
+  }
+  if (payment.access_key !== process.env.ACCESS_KEY || payment.profile_id !== process.env.PROFILE_ID) {
+    return null;
+  }
+
+  const expected = Buffer.from(signData(payment, process.env.SIGNATURE));
+  const provided = Buffer.from(signature);
+  if (expected.length !== provided.length || !crypto.timingSafeEqual(expected, provided)) {
+    return null;
+  }
+
+  payment.signature = signature;
+  return payment;
+}
+
 // Route to handle payment form submission
 app.post('/payment_form', validateApiKey, (req, res, next) => {
   console.log("Request body: ", JSON.stringify(req.body));
@@ -109,10 +150,13 @@ console.log("Response: ", JSON.stringify({paymentUrl: frontendUrl, signature: si
 });
 
 // Route to handle payment submission
-app.post('/payment_submit', async (req, res, next) => {
+app.post('/payment_submit', validateApiKey, async (req, res, next) => {
    console.log("Request body: ", JSON.stringify(req.body));
   try {
-    const paymentDetails = req.body;
+    const paymentDetails = verifySignedPayment(req.body);
+    if (!paymentDetails) {
+      return res.status(400).json({ error: 'Invalid payment' });
+    }
 
     // Stringify the payment details as URL-encoded form data
     const formData = qs.stringify(paymentDetails);
