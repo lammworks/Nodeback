@@ -7,11 +7,29 @@ const cors = require('cors');
 const helmet = require('helmet');
 const rateLimit = require('express-rate-limit');
 const axios = require('axios');
+const net = require('net');
 const querystring = require('querystring');
 const qs = require('qs'); // Add this at the top of your file
 
 // Initialize Express app
 const app = express();
+
+// Google's front end reaches the function from a link-local address and appends
+// the real client address as the last X-Forwarded-For entry. Trust only that one
+// hop so req.ip is the platform-provided client address; any other peer
+// (including direct callers) is keyed by its own socket address.
+const googleFrontEnd = new net.BlockList();
+googleFrontEnd.addSubnet('169.254.0.0', 16, 'ipv4');
+googleFrontEnd.addSubnet('fe80::', 10, 'ipv6');
+
+function isGoogleFrontEnd(addr) {
+  const mapped = /^::ffff:(\d+\.\d+\.\d+\.\d+)$/i.exec(addr);
+  if (mapped) return googleFrontEnd.check(mapped[1], 'ipv4');
+  const family = net.isIP(addr);
+  return family !== 0 && googleFrontEnd.check(addr, family === 6 ? 'ipv6' : 'ipv4');
+}
+
+app.set('trust proxy', (addr, hop) => hop === 0 && isGoogleFrontEnd(addr));
 
 // Use necessary middleware
 app.use(cors());
@@ -21,9 +39,10 @@ app.use(bodyParser.json());
 // Set up rate limiting
 const limiter = rateLimit({
   windowMs: 24 * 60 * 60 * 1000, // 24 hours
-  max: 100, // limit each IP to 10 requests per windowMs
+  max: 100, // limit each IP to 100 requests per windowMs
+  // Caller-supplied headers such as x-fastly-client-ip must not choose the quota.
   keyGenerator: function (req, res) {
-    return req.headers['x-fastly-client-ip'] || req.ip; // Use 'fastly-client-ip' header, fall back to req.ip
+    return req.ip;
   }
 });
 
